@@ -1,5 +1,7 @@
 import express from "express";
 import {
+    exchangeNpssoForAccessCode,
+    exchangeAccessCodeForAuthTokens,
     exchangeRefreshTokenForAuthTokens
 } from "psn-api";
 
@@ -18,6 +20,51 @@ app.get("/", (req, res) => {
             ? "configurada"
             : "aguardando configuração"
     });
+});
+
+/*
+ * Rota TEMPORÁRIA para obter os tokens.
+ *
+ * IMPORTANTE:
+ * O NPSSO será enviado somente por você para esta rota
+ * e NÃO será salvo no GitHub.
+ */
+app.get("/api/psn/autenticar", async (req, res) => {
+
+    const npsso = req.query.npsso;
+
+    if (!npsso) {
+        return res.status(400).json({
+            sucesso: false,
+            erro: "NPSSO não informado."
+        });
+    }
+
+    try {
+
+        const accessCode =
+            await exchangeNpssoForAccessCode(npsso);
+
+        const authorization =
+            await exchangeAccessCodeForAuthTokens(
+                accessCode
+            );
+
+        return res.json({
+            sucesso: true,
+            mensagem: "Autenticação concluída.",
+            refreshToken: authorization.refreshToken
+        });
+
+    } catch (erro) {
+
+        console.error("Erro de autenticação:", erro);
+
+        return res.status(500).json({
+            sucesso: false,
+            erro: "Não foi possível autenticar com a PSN."
+        });
+    }
 });
 
 app.get("/api/psn/status", async (req, res) => {
@@ -65,7 +112,7 @@ app.get("/api/psn/:psnId", async (req, res) => {
 
     return res.json({
         psnId: psnId,
-        mensagem: "PSN ID recebido. A busca será conectada na próxima etapa."
+        mensagem: "PSN ID recebido."
     });
 });
 
