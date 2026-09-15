@@ -1,0 +1,14 @@
+{
+  "name": "trophyleaders-backend",
+  "version": "1.0.0",
+  "description": "Backend do aplicativo TrophyLeaders",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "psn-api": "^2.18.1"
+  }
+}
