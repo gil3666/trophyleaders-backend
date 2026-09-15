@@ -2,7 +2,9 @@ import express from "express";
 
 import {
     exchangeRefreshTokenForAuthTokens,
-    getProfileFromUserName
+    getProfileFromUserName,
+    getUserTrophyProfileSummary,
+    getUserTitles
 } from "psn-api";
 
 const app = express();
@@ -12,10 +14,6 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 const PSN_REFRESH_TOKEN = process.env.PSN_REFRESH_TOKEN;
 
-
-/*
- * Obtém um novo access token usando o refresh token.
- */
 async function obterAutorizacao() {
 
     if (!PSN_REFRESH_TOKEN) {
@@ -24,47 +22,36 @@ async function obterAutorizacao() {
         );
     }
 
-    const tokens =
+    const authorization =
         await exchangeRefreshTokenForAuthTokens(
             PSN_REFRESH_TOKEN
         );
 
-    if (!tokens || !tokens.accessToken) {
+    if (
+        !authorization ||
+        !authorization.accessToken
+    ) {
         throw new Error(
             "A PSN não retornou um access token válido."
         );
     }
 
-    console.log("Novo access token obtido.");
-
     return {
-        accessToken: tokens.accessToken
+        accessToken: authorization.accessToken
     };
 }
 
 
-/*
- * Página inicial.
- */
 app.get("/", (req, res) => {
 
     res.json({
         nome: "TrophyLeaders Backend",
-        status: "online",
-        psnApi: PSN_REFRESH_TOKEN
-            ? "configurada"
-            : "aguardando configuração"
+        status: "online"
     });
 
 });
 
 
-/*
- * TESTE REAL DA AUTENTICAÇÃO.
- *
- * Esta rota não apenas verifica se conseguimos renovar
- * o token. Ela também faz uma chamada real à PSN.
- */
 app.get("/api/psn/status", async (req, res) => {
 
     try {
@@ -72,28 +59,18 @@ app.get("/api/psn/status", async (req, res) => {
         const authorization =
             await obterAutorizacao();
 
-
-        /*
-         * Faz uma chamada real à PlayStation.
-         *
-         * Usamos o próprio usuário autenticado.
-         */
         const perfil =
             await getProfileFromUserName(
                 authorization,
                 "me"
             );
 
-
         res.json({
 
             sucesso: true,
 
             mensagem:
-                "Autenticação e chamada à PSN funcionando.",
-
-            tokenRecebido:
-                true,
+                "Conexão com a PSN funcionando.",
 
             onlineId:
                 perfil?.profile?.onlineId || null,
@@ -106,10 +83,9 @@ app.get("/api/psn/status", async (req, res) => {
     } catch (erro) {
 
         console.error(
-            "ERRO REAL DA PSN:",
+            "ERRO PSN:",
             erro
         );
-
 
         res.status(500).json({
 
@@ -117,7 +93,7 @@ app.get("/api/psn/status", async (req, res) => {
 
             erro:
                 erro?.message ||
-                "Erro desconhecido ao acessar a PSN."
+                "Erro ao acessar a PSN."
 
         });
 
@@ -126,16 +102,12 @@ app.get("/api/psn/status", async (req, res) => {
 });
 
 
-/*
- * Pesquisa um PSN ID.
- */
 app.get("/api/psn/:psnId", async (req, res) => {
 
     const psnId =
-        req.params.psnId;
+        req.params.psnId?.trim();
 
-
-    if (!psnId || psnId.trim() === "") {
+    if (!psnId) {
 
         return res.status(400).json({
 
@@ -147,7 +119,6 @@ app.get("/api/psn/:psnId", async (req, res) => {
         });
 
     }
-
 
     try {
 
@@ -176,23 +147,143 @@ app.get("/api/psn/:psnId", async (req, res) => {
         }
 
 
+        const perfil =
+            perfilResponse.profile;
+
+
+        let resumo = null;
+
+        try {
+
+            resumo =
+                await getUserTrophyProfileSummary(
+                    authorization,
+                    perfil.accountId
+                );
+
+        } catch (erroResumo) {
+
+            console.error(
+                "Erro ao obter resumo de troféus:",
+                erroResumo
+            );
+
+        }
+
+
+        let jogos = [];
+
+        try {
+
+            const jogosResponse =
+                await getUserTitles(
+                    authorization,
+                    perfil.accountId,
+                    {
+                        limit: 100
+                    }
+                );
+
+            jogos =
+                jogosResponse?.trophyTitles || [];
+
+        } catch (erroJogos) {
+
+            console.error(
+                "Erro ao obter jogos:",
+                erroJogos
+            );
+
+        }
+
+
         res.json({
 
             sucesso: true,
 
-            perfil:
-                perfilResponse.profile
+            perfil: {
+
+                psnId:
+                    perfil.onlineId || psnId,
+
+                accountId:
+                    perfil.accountId || null,
+
+                avatar:
+                    perfil.avatarUrl || null,
+
+                nivel:
+                    resumo?.trophyLevel || 0,
+
+                progresso:
+                    resumo?.progress || 0,
+
+                platinas:
+                    resumo?.earnedTrophies?.platinum || 0,
+
+                ouros:
+                    resumo?.earnedTrophies?.gold || 0,
+
+                pratas:
+                    resumo?.earnedTrophies?.silver || 0,
+
+                bronzes:
+                    resumo?.earnedTrophies?.bronze || 0,
+
+                totalJogos:
+                    jogos.length,
+
+                jogos:
+                    jogos.map(jogo => ({
+
+                        titulo:
+                            jogo.trophyTitleName || "",
+
+                        imagem:
+                            jogo.trophyTitleIconUrl || "",
+
+                        plataforma:
+                            jogo.trophyTitlePlatform || "",
+
+                        trofeusTotal:
+                            jogo.definedTrophies?.bronze +
+                            jogo.definedTrophies?.silver +
+                            jogo.definedTrophies?.gold +
+                            jogo.definedTrophies?.platinum || 0,
+
+                        trofeusObtidos:
+                            jogo.earnedTrophies?.bronze +
+                            jogo.earnedTrophies?.silver +
+                            jogo.earnedTrophies?.gold +
+                            jogo.earnedTrophies?.platinum || 0,
+
+                        platinas:
+                            jogo.earnedTrophies?.platinum || 0,
+
+                        ouros:
+                            jogo.earnedTrophies?.gold || 0,
+
+                        pratas:
+                            jogo.earnedTrophies?.silver || 0,
+
+                        bronzes:
+                            jogo.earnedTrophies?.bronze || 0
+
+                    }))
+
+                }
+
+            }
 
         });
 
     } catch (erro) {
 
         console.error(
-            "Erro ao consultar PSN ID:",
+            "ERRO AO CONSULTAR PSN ID:",
             psnId,
             erro
         );
-
 
         res.status(500).json({
 
@@ -209,9 +300,6 @@ app.get("/api/psn/:psnId", async (req, res) => {
 });
 
 
-/*
- * Inicia o servidor.
- */
 app.listen(PORT, () => {
 
     console.log(
